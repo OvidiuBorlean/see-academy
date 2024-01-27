@@ -200,8 +200,8 @@ resource "azurerm_virtual_machine" "dnsvm" {
   }
   os_profile {
     computer_name  = "smeoborleandns"
-    admin_username = "azureuser"
-    admin_password = "P@ssw0rd123!"
+    admin_username = ""
+    admin_password = ""
   }
   os_profile_linux_config {
     disable_password_authentication = false
@@ -558,8 +558,8 @@ resource "azurerm_virtual_machine" "jumpbox" {
   }
   os_profile {
     computer_name  = "smeoborleanjumpbox"
-    admin_username = "azureuser"
-    admin_password = "P@ssw0rd123!!"
+    admin_username = ""
+    admin_password = ""
   }
   os_profile_linux_config {
     disable_password_authentication = false
