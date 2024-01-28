@@ -114,12 +114,52 @@ resource "azurerm_resource_group" "sme_core_oborlean_rg" {
   location = var.location
 }
 
-# --- Network Security Group - Optional
-#resource "azurerm_network_security_group" "example" {
-#  name                = "example-security-group"
-#  location            = azurerm_resource_group.resource_group.location
-#  resource_group_name = azurerm_resource_group.resource_group.name
-#}
+# Create the NSG Rules to allow DNS queries.
+resource "azurerm_network_security_group" "nsgdns" {
+  name                = "nsgdns"
+  location            = azurerm_resource_group.sme_netcore_oborlean_rg.location
+  resource_group_name = azurerm_resource_group.sme_netcore_oborlean_rg.name
+
+  security_rule {
+    name                       = "AllowDNSRequestsUdp"
+    priority                   = 500
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Udp"
+    source_port_range          = "*"
+    destination_port_range     = "53"
+    source_address_prefix      = "*"
+    destination_address_prefix = "10.10.1.10/32"
+  }
+  security_rule {
+    name                       = "AllowDNSRequestsTcp"
+    priority                   = 600
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Udp"
+    source_port_range          = "*"
+    destination_port_range     = "53"
+    source_address_prefix      = "*"
+    destination_address_prefix = "10.10.1.10/32"
+  }
+  security_rule {
+    name                       = "AllowSSH"
+    priority                   = 700
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "10.10.1.0/24"
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "hub_subnet" {
+  subnet_id                 = azurerm_subnet.azurerm_subnet.sme_vnet_hub_subnet.id
+  network_security_group_id = azurerm_network_security_group.nsgdns.id
+  depends_on                = "azurerm_virtual_network.hubvnet"
+}
 
 # ------------ Creating HUB Virtual Network and Subnets------------
 
@@ -200,8 +240,8 @@ resource "azurerm_virtual_machine" "dnsvm" {
   }
   os_profile {
     computer_name  = "smeoborleandns"
-    admin_username = ""
-    admin_password = ""
+    admin_username = "azureuser"
+    admin_password = "P@ssw0rd123!"
   }
   os_profile_linux_config {
     disable_password_authentication = false
@@ -354,7 +394,11 @@ resource "azurerm_route_table" "sme_oborlean_routetable" {
 resource "azurerm_subnet_route_table_association" "aks_subnet_association" {
   subnet_id      = azurerm_subnet.sme_vnet_aks_subnet_nodes.id
   route_table_id = azurerm_route_table.sme_oborlean_routetable.id
+}
 
+resource "azurerm_subnet_route_table_association" "aks_subnet_association" {
+  subnet_id      = azurerm_subnet.sme_vnet_aks_subnet_pods.id
+  route_table_id = azurerm_route_table.sme_oborlean_routetable.id
 }
 
 # ------------ Define Azure Private DNS Zones and configures the links towards Vnets ------------
@@ -558,8 +602,8 @@ resource "azurerm_virtual_machine" "jumpbox" {
   }
   os_profile {
     computer_name  = "smeoborleanjumpbox"
-    admin_username = ""
-    admin_password = ""
+    admin_username = "azureuser"
+    admin_password = "P@ssw0rd123!!"
   }
   os_profile_linux_config {
     disable_password_authentication = false
