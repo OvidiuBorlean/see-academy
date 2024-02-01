@@ -553,7 +553,12 @@ resource "azurerm_private_endpoint" "acr_private_endpoint" {
     name                 = "acr_io"
     private_dns_zone_ids = [azurerm_private_dns_zone.acr_io.id]
   }
-  
+  depends_on            = [azurerm_subnet.sme_vnet_hub_subnet,
+                           azurerm_container_registry.acr,
+                           azurerm_private_dns_zone.acr_io
+
+
+  ]
 }
 
 # ------------ Create Jumpbox Virtual Machine ------------
