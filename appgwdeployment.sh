@@ -41,7 +41,9 @@ az role assignment create --assignee "${USER_ASSIGNED_IDENTITY_CLIENT_ID}" --sco
 az role assignment create --assignee "${USER_ASSIGNED_IDENTITY_CLIENT_ID}" --scope /subscriptions/d53beca8-7450-4196-a689-84cf17f3bfe3/resourceGroups/sme_aks_oborlean_rg --role Contributor
 
 export APPLICATION_GATEWAY_PUBLICIP_RESOURCE_ID="$(az network public-ip show --name "${APPLICATION_GATEWAY_PUBLICIP}" --resource-group "${RESOURCE_GROUP_NAME}" --query 'id' --output tsv)"
-az role assignment create --assignee c1ec9750-fb6b-439c-9fc4-e400969aa8f5 --scope /subscriptions/d53beca8-7450-4196-a689-84cf17f3bfe3/resourceGroups/sme_aks_oborlean_rg/providers/Microsoft.Network/virtualNetworks/sme_vnet_aks --role Contributor
+az role assignment create --assignee  "${USER_ASSIGNED_IDENTITY_CLIENT_ID}" --scope /subscriptions/d53beca8-7450-4196-a689-84cf17f3bfe3/resourceGroups/sme_aks_oborlean_rg/providers/Microsoft.Network/virtualNetworks/sme_vnet_aks --role Contributor
+
+az role assignment create --assignee "${USER_ASSIGNED_IDENTITY_CLIENT_ID}" --scope $APPLICATION_GATEWAY_PUBLICIP_RESOURCE_ID --role Contributor
 
 export subscriptionId="$(az account list --query "[?isDefault].id" -o tsv)"
 echo "Subscription Id: $subscriptionId" >> deployment.report
