@@ -89,10 +89,10 @@ provider "azurerm" {
       prevent_deletion_if_contains_resources = false
     }
   }
-  client_id       = var.client_id
-  client_secret   = var.client_secret
-  tenant_id       = var.tenant_id
-  subscription_id = var.subscription_id
+  #client_id       = var.client_id
+  #client_secret   = var.client_secret
+  #tenant_id       = var.tenant_id
+  #subscription_id = var.subscription_id
 
   
 }
@@ -155,12 +155,6 @@ resource "azurerm_network_security_group" "nsgdns" {
   }
 }
 
-resource "azurerm_subnet_network_security_group_association" "hub_subnet" {
-  subnet_id                 = azurerm_subnet.azurerm_subnet.sme_vnet_hub_subnet.id
-  network_security_group_id = azurerm_network_security_group.nsgdns.id
-  depends_on                = "azurerm_virtual_network.hubvnet"
-}
-
 # ------------ Creating HUB Virtual Network and Subnets------------
 
 resource "azurerm_virtual_network" "hubvnet" {
@@ -197,6 +191,14 @@ resource "azurerm_subnet" "AzureApplicationGateway" {
   virtual_network_name = azurerm_virtual_network.hubvnet.name
   resource_group_name  = azurerm_resource_group.sme_netcore_oborlean_rg.name
   address_prefixes = ["10.10.2.0/24"]
+}
+
+resource "azurerm_subnet_network_security_group_association" "hub_subnet" {
+  subnet_id                 = azurerm_subnet.sme_vnet_hub_subnet.id
+  network_security_group_id = azurerm_network_security_group.nsgdns.id
+  depends_on                = [azurerm_virtual_network.hubvnet,
+                              azurerm_subnet.sme_vnet_hub_subnet
+  ]
 }
 
 # To have the DNS Server available for the rest of resources
@@ -391,12 +393,12 @@ resource "azurerm_route_table" "sme_oborlean_routetable" {
   }
 }
 
-resource "azurerm_subnet_route_table_association" "aks_subnet_association" {
+resource "azurerm_subnet_route_table_association" "aks_subnet_association_nodes" {
   subnet_id      = azurerm_subnet.sme_vnet_aks_subnet_nodes.id
   route_table_id = azurerm_route_table.sme_oborlean_routetable.id
 }
 
-resource "azurerm_subnet_route_table_association" "aks_subnet_association" {
+resource "azurerm_subnet_route_table_association" "aks_subnet_association_pods" {
   subnet_id      = azurerm_subnet.sme_vnet_aks_subnet_pods.id
   route_table_id = azurerm_route_table.sme_oborlean_routetable.id
 }
@@ -497,7 +499,8 @@ resource "azurerm_kubernetes_cluster" "sme_oborlean_aks" {
                 azurerm_firewall.sme_oborlean_fw, 
                 azurerm_role_assignment.dnscontributor, 
                 azurerm_route_table.sme_oborlean_routetable, 
-                azurerm_subnet_route_table_association.aks_subnet_association, 
+                azurerm_subnet_route_table_association.aks_subnet_association_nodes,
+                azurerm_subnet_route_table_association.aks_subnet_association_pods, 
                 azurerm_user_assigned_identity.uami, 
                 azurerm_virtual_network_peering.sme_vnet_peering_hub,
                 azurerm_virtual_network_peering.sme_vnet_peering_spoke,
