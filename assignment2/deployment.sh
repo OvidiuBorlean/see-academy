@@ -23,8 +23,21 @@ function k8sWorkload {
    kubectl create namespace dev-rmq
    kubectl create namespace prod
    kubectl create namespace prod-rmq
+   echo "Download deployment files"
    curl -v https://seeacademyhw2.blob.core.windows.net/aks-store-demo-hw2/aks-store-demo-hw2.yaml -o aks-store-demo-hw2.yaml
-   kubectl apply -f ./aks-store-demo-hw2.yaml -n prod
+   echo "Splitting applications"
+   sed -n '1,72 p' ./aks-store-demo-hw2.yaml > rabbitmq.yaml
+   sed -n '74,286 p' ./aks-store-demo-hw2.yaml > application.yaml  
+   # Prod
+   kubectl apply -f ./rabbitmq.yaml -n prod-rmq
+   sed -i "66s/.*/        command: ['sh', '-c', 'until nc -zv rabbitmq.prod-rmq.svc.cluster.local 5672; do echo waiting for rabbitmq; sleep 2; done;']/" ./application.yaml
+   kubectl apply -f /application.yaml -n prod
+   # Dev
+   kubectl apply -f ./rabbitmq.yaml -n dev-rmq
+   sed -i "66s/.*/        command: ['sh', '-c', 'until nc -zv rabbitmq.dev-rmq.svc.cluster.local 5672; do echo waiting for rabbitmq; sleep 2; done;']/" ./application.yaml
+   kubectl apply -f ./application.yaml -n dev
+
+   #kubectl apply -f ./aks-store-demo-hw2.yaml -n prod
 
 
 }
