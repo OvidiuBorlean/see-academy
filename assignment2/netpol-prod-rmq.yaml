@@ -1,0 +1,19 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: no-inbound-traffic
+  namespace: prod-rmq
+spec:
+  policyTypes:
+  - Ingress
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: prod
+      - podSelector:      
+          matchLabels:
+            app: order-service     
