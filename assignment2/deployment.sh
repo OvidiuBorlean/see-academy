@@ -47,7 +47,109 @@ function k8sWorkload {
    kubectl apply -f ./application.yaml -n dev
 
    #kubectl apply -f ./aks-store-demo-hw2.yaml -n prod
+}
 
+function netPolicy {
+
+cat << EOF > ./default-deny.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+}
+EOF
+
+kubectl apply -f ./default-deny.yaml -n prod
+kubectl apply -f ./default-deny.yaml -n prod-rmq
+
+kubectl apply -f ./default-deny.yaml -n dev
+kubectl apply -f ./default-deny.yaml -n dev-rmq
+
+cat << EOF > ./netpol-dev-rmq.yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: no-inbound-traffic
+  namespace: dev-rmq
+spec:
+  policyTypes:
+  - Ingress
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: dev
+      - podSelector:      
+          matchLabels:
+            app: order-service  
+EOF
+
+kubectl apply -f ./netpol-dev-rmq.yaml -n dev-rmq
+
+cat << EOF > ./netpol-prod-rmq.yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: no-inbound-traffic
+  namespace: prod-rmq
+spec:
+  policyTypes:
+  - Ingress
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: prod
+      - podSelector:      
+          matchLabels:
+            app: order-service      
+EOF
+
+kubectl apply -f ./netpol-prod-rmq.yaml
+
+function configHPA {
+  
+cat << EOF > ./store-front-hpa.yaml
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  creationTimestamp: null
+  name: store-front
+spec:
+  maxReplicas: 50
+  minReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: store-front
+  targetCPUUtilizationPercentage: 50
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 15
+      policies: 
+      - type: Pods
+        value: 4
+        periodSeconds: 5 
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 20 
+        periodSeconds: 20  
+EOF
+
+kubectl apply -f ./store-fron-hpa.yaml -n dev
+kubectl apply -f ./store-fron-hpa.yaml -n prod
 
 }
 
