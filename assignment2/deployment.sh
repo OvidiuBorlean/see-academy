@@ -60,7 +60,7 @@ spec:
   podSelector: {}
   policyTypes:
   - Ingress
-}
+
 EOF
 
 kubectl apply -f ./default-deny.yaml -n prod
@@ -116,6 +116,8 @@ spec:
 EOF
 
 kubectl apply -f ./netpol-prod-rmq.yaml
+}
+
 
 function configHPA {
   
@@ -155,6 +157,127 @@ kubectl apply -f ./store-fron-hpa.yaml -n prod
 
 
 
+function agicDeployment {
+
+az network public-ip create -n agicPublicIP -g $RESOURCE_GROUP_NAME --allocation-method Static --sku Standard
+az network vnet create -n agicVnet -g $RESOURCE_GROUP_NAME --address-prefix 10.0.0.0/16 --subnet-name agicSubnet --subnet-prefix 10.0.0.0/24 
+az network application-gateway create -n storeGateway -g $RESOURCE_GROUP_NAME --sku Standard_v2 --public-ip-address agicPublicIP --vnet-name agicVnet --subnet agicSubnet --priority 100
+
+appgwId=$(az network application-gateway show -n storeGateway -g $RESOURCE_GROUP_NAME -o tsv --query "id") 
+az aks enable-addons -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -a ingress-appgw --appgw-id $appgwId
+
+nodeResourceGroup=$(az aks show -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -o tsv --query "nodeResourceGroup")
+echo $nodeResourceGroup
+
+aksVnetName=$(az network vnet list -g $nodeResourceGroup -o tsv --query "[0].name")
+echo $aksVnetName
+
+aksVnetId=$(az network vnet show -n $aksVnetName -g $nodeResourceGroup -o tsv --query "id")
+
+az network vnet peering create -n AppGWtoAKSVnetPeering -g $RESOURCE_GROUP_NAME --vnet-name agicVnet --remote-vnet $aksVnetId --allow-vnet-access
+
+appGWVnetId=$(az network vnet show -n agicVnet -g $RESOURCE_GROUP_NAME -o tsv --query "id")
+az network vnet peering create -n AKStoAppGWVnetPeering -g $nodeResourceGroup --vnet-name $aksVnetName --remote-vnet $appGWVnetId --allow-vnet-access
+
+kubectl patch svc store-front -n prod -p '{"spec": {"type": "ClusterIP"}}'
+
+echo "Creating Ingress Object for Prod"
+
+cat << EOF > ./ingress-prod.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: storefront-prod
+  namespace: prod
+  annotations:
+    kubernetes.io/ingress.class: azure/application-gateway      
+spec:
+  rules:
+  - http:
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: store-front
+              port:
+                number: 80
+EOF
+
+kubectl apply -f ./ingress-prod.yaml
+
+
+}
+
+
+function nginxDeployment {
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+helm install ingress-dev ingress-nginx/ingress-nginx \
+    --namespace dev \
+    --set controller.replicaCount=2 \
+    --set controller.nodeSelector."kubernetes\.io/os"=linux \
+    --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-internal"=true \
+    --set controller.ingressClassResource.name=ingressdev
+
+echo "Changing Store Front Dev service from Load Balancer to ClusterIP in order to be used as a Ingress Backend service"
+kubectl patch svc store-front -n prod -p '{"spec": {"type": "ClusterIP"}}'
+
+echo "Creating Ingress Object for Dev"
+
+cat << EOF > ./ingress-dev.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: storefront-dev
+  namespace: dev
+spec:
+  ingressClass: ingressdev
+  rules:
+  - http:
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: store-front
+              port:
+                number: 80
+EOF
+
+kubectl apply -f ./ingress-dev.yaml
+
+
+}
+
+function taintsAndToleration {
+
+az aks nodepool add --cluster-name $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME --name devpool --node-count 1 --labels=env=dev --node-taints env=dev:NoSchedule
+
+kubectl patch deploy store-front -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "dev", "effect": "NoSchedule"}]}}}}'
+kubectl patch deploy order-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "dev", "effect": "NoSchedule"}]}}}}'
+kubectl patch deploy product-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "dev", "effect": "NoSchedule"}]}}}}'
+kubectl rollout restart deployment store-front -n dev
+kubectl rollout restart deployment order-service -n dev
+kubectl rollout restart deployment product-service -n dev
+
+
+az aks nodepool add --cluster-name $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME --name prodpool --node-count 1 --labels=env=prod --node-taints env=prod:NoSchedule
+
+kubectl patch deploy store-front -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}>
+kubectl patch deploy order-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]>
+kubectl patch deploy product-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule">
+kubectl rollout restart deployment store-front -n prod
+kubectl rollout restart deployment order-service -n prod
+kubectl rollout restart deployment product-service -n prod
+
+
+}
+
+
+
 case $1 in
   create)
     echo "Creating AKS Cluster"
@@ -166,7 +289,15 @@ case $1 in
     az aks delete -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -y
     az group delete -n $RESOURCE_GROUP_NAME -y
     ;;
-  *)
+  agic)
+    echo "Deploy AGIC"
+    agicDeployment
+    ;;
+  nginx)
+    echo "Deploy NGINX Ingress Controller"
+    nginxDeployment
+    ;;
+    *)
     echo "Hello, $2!"
     ;;
 esac
