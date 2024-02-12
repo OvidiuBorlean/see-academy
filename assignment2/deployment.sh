@@ -163,20 +163,20 @@ az network public-ip create -n agicPublicIP -g $RESOURCE_GROUP_NAME --allocation
 az network vnet create -n agicVnet -g $RESOURCE_GROUP_NAME --address-prefix 10.0.0.0/16 --subnet-name agicSubnet --subnet-prefix 10.0.0.0/24 
 az network application-gateway create -n storeGateway -g $RESOURCE_GROUP_NAME --sku Standard_v2 --public-ip-address agicPublicIP --vnet-name agicVnet --subnet agicSubnet --priority 100
 
-appgwId=$(az network application-gateway show -n storeGateway -g $RESOURCE_GROUP_NAME -o tsv --query "id") 
+appgwId="$(az network application-gateway show -n storeGateway -g $RESOURCE_GROUP_NAME -o tsv --query 'id')" 
 az aks enable-addons -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -a ingress-appgw --appgw-id $appgwId
 
-nodeResourceGroup=$(az aks show -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -o tsv --query "nodeResourceGroup")
+nodeResourceGroup="$(az aks show -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -o tsv --query 'nodeResourceGroup')"
 echo $nodeResourceGroup
 
-aksVnetName=$(az network vnet list -g $nodeResourceGroup -o tsv --query "[0].name")
+aksVnetName="$(az network vnet list -g $nodeResourceGroup -o tsv --query '[0].name')"
 echo $aksVnetName
 
-aksVnetId=$(az network vnet show -n $aksVnetName -g $nodeResourceGroup -o tsv --query "id")
+aksVnetId="$(az network vnet show -n $aksVnetName -g $nodeResourceGroup -o tsv --query 'id')"
 
 az network vnet peering create -n AppGWtoAKSVnetPeering -g $RESOURCE_GROUP_NAME --vnet-name agicVnet --remote-vnet $aksVnetId --allow-vnet-access
 
-appGWVnetId=$(az network vnet show -n agicVnet -g $RESOURCE_GROUP_NAME -o tsv --query "id")
+appGWVnetId="$(az network vnet show -n agicVnet -g $RESOURCE_GROUP_NAME -o tsv --query 'id')"
 az network vnet peering create -n AKStoAppGWVnetPeering -g $nodeResourceGroup --vnet-name $aksVnetName --remote-vnet $appGWVnetId --allow-vnet-access
 
 kubectl patch svc store-front -n prod -p '{"spec": {"type": "ClusterIP"}}'
@@ -266,13 +266,153 @@ kubectl rollout restart deployment product-service -n dev
 
 az aks nodepool add --cluster-name $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME --name prodpool --node-count 1 --labels=env=prod --node-taints env=prod:NoSchedule
 
-kubectl patch deploy store-front -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}>
-kubectl patch deploy order-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]>
-kubectl patch deploy product-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule">
+kubectl patch deploy store-front -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}>'
+kubectl patch deploy order-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]>'
+kubectl patch deploy product-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule">'
 kubectl rollout restart deployment store-front -n prod
 kubectl rollout restart deployment order-service -n prod
 kubectl rollout restart deployment product-service -n prod
 
+
+}
+
+function azureFileShare {
+
+export STORAGE_RESOURCE_GROUP="SEE-Academy-HW2"
+export STORAGE_ACCOUNT_NAME="seeacademyfileshare"
+export FILE_SHARE_NAME="oborleanfileshare"
+
+az group create -n $STORAGE_RESOURCE_GROUP --location eastus
+az storage account create -n STORAGE_ACCOUNT_NAME -g $STORAGE_RESOURCE_GROUP -l EastUS --sku Standard_LRS
+export AZURE_STORAGE_CONNECTION_STRING=$(az storage account show-connection-string -n $STORAGE_ACCOUNT_NAME -g $STORAGE_RESOURCE_GROUP -o tsv)
+az storage share create -n $FILE_SHARE_NAME --connection-string $AZURE_STORAGE_CONNECTION_STRING
+STORAGE_KEY=$(az storage account keys list --resource-group $STORAGE_RESOURCE_GROUP --account-name $STORAGE_ACCOUNT_NAME --query "[0].value" -o tsv)
+echo Storage account key: $STORAGE_KEY
+
+kubectl create secret generic azure-secret --from-literal=azurestorageaccountname=$STORAGE_ACCOUNT_NAME --from-literal=azurestorageaccountkey=$STORAGE_KEY
+
+echo "Generate Storage Account Config Files"
+cat << EOF > ./azurefiles.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    pv.kubernetes.io/provisioned-by: file.csi.azure.com
+  name: azurefile
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: azurefile-csi
+  csi:
+    driver: file.csi.azure.com
+    volumeHandle: unique-volumeid  # make sure this volumeid is unique for every identical share in the cluster
+    volumeAttributes:
+      resourceGroup: $STORAGE_RESOURCE_GROUP
+      shareName: $FILE_SHARE_NAME
+    nodeStageSecretRef:
+      name: azure-secret
+      namespace: default
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+    - uid=0
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+    - nobrl
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: azurefile
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: azurefile-csi
+  volumeName: azurefile
+  resources:
+    requests:
+      storage: 5Gi
+---	  
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod2
+spec:
+  nodeSelector:
+    kubernetes.io/os: linux
+  containers:
+    - image: 'mcr.microsoft.com/oss/nginx/nginx:1.15.5-alpine'
+      name: mypod
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+      volumeMounts:
+        - name: azure
+          mountPath: /mnt/azure
+          readOnly: false
+  volumes:
+    - name: azure
+      csi:
+        driver: file.csi.azure.com
+        volumeAttributes:
+          secretName: azure-secret  # required
+          shareName: $FILE_SHARE_NAME
+          mountOptions: 'dir_mode=0777,file_mode=0777,cache=strict,actimeo=30,nosharesock'  # optional
+EOF
+
+}
+
+function secretStore {
+
+az aks enable-addons --addons azure-keyvault-secrets-provider --name $AKS_CLUSTER_NAME --resource-group $RESOURCE_GROUP_NAME
+az keyvault create -n smeoborlean -g $RESOURCE_GROUP_NAME -l eastus --enable-rbac-authorization
+
+az keyvault secret set --vault-name smeoborlean -n username --value username
+az keyvault secret set --vault-name smeoborlean -n password --value password
+AKS_UAMI="$(az aks show -g $RESOURCE_GROUP_NAME -n $AKS_CLUSTER_NAME --query addonProfiles.azureKeyvaultSecretsProvider.identity.objectId -o tsv)"
+IDENTITY_OBJECT_ID="$(az identity show -g $RESOURCE_GROUP_NAME --name $AKS_UAMI --query 'principalId' -o tsv)"
+KEYVAULT_SCOPE="$(az keyvault show --name smeoborlean --query id -o tsv)"
+
+
+
+az role assignment create --role "Key Vault Administrator" --assignee $IDENTITY_OBJECT_ID --scope $KEYVAULT_SCOPE
+
+cat << EOF > ./spclass.yaml
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: smeoborlean
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    useVMManagedIdentity: "true"          # Set to true for using managed identity
+    userAssignedIdentityID: $IDENTITY_OBJECT_ID
+    keyvaultName: smeoborlean
+    cloudName: ""                         # [OPTIONAL for Azure] if not provided, the Azure environment defaults to AzurePublicCloud
+    objects:  |
+      array:
+        - |
+          objectName: username
+          objectType: secret              # object types: secret, key, or cert
+          objectVersiousername:             # [OPTIONAL] object versions, default to latest if empty
+        - |
+          objectName: password
+          objectType: secret
+          objectVersion: ""
+    tenantId: "72f988bf-86f1-41af-91ab-2d7cd011db47"                 # The tenant ID of the key vault
+EOF
+
+kubectl apply -f ./spclass.yaml
 
 }
 
@@ -281,23 +421,27 @@ kubectl rollout restart deployment product-service -n prod
 case $1 in
   create)
     echo "Creating AKS Cluster"
-    createAKS
-    k8sWorkload
-  ;;
+    #createAKS
+    #k8sWorkload
+    ;;
   delete)
     echo "Deleting AKS Cluster"
-    az aks delete -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -y
-    az group delete -n $RESOURCE_GROUP_NAME -y
+    #az aks delete -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -y
+    #az group delete -n $RESOURCE_GROUP_NAME -y
     ;;
   agic)
     echo "Deploy AGIC"
-    agicDeployment
+    #agicDeployment
     ;;
   nginx)
     echo "Deploy NGINX Ingress Controller"
-    nginxDeployment
+    #nginxDeployment
     ;;
-    *)
-    echo "Hello, $2!"
+  secret)
+    echo "Deploy Secret Store"
+    secretStore
+    ;;
+  *)
+    echo -n "unknown"
     ;;
 esac
