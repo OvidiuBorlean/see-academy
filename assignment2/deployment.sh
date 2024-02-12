@@ -337,7 +337,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
----	  
+---       
 apiVersion: v1
 kind: Pod
 metadata:
@@ -373,11 +373,12 @@ EOF
 
 function secretStore {
 
-az aks enable-addons --addons azure-keyvault-secrets-provider --name $AKS_CLUSTER_NAME --resource-group $RESOURCE_GROUP_NAME
-az keyvault create -n smeoborlean -g $RESOURCE_GROUP_NAME -l eastus --enable-rbac-authorization
+echo "Enable KeyVault AddOn"
+#az aks enable-addons --addons azure-keyvault-secrets-provider --name $AKS_CLUSTER_NAME --resource-group $RESOURCE_GROUP_NAME
+#az keyvault create -n smeoborlean -g $RESOURCE_GROUP_NAME -l eastus --enable-rbac-authorization
 
-az keyvault secret set --vault-name smeoborlean -n username --value username
-az keyvault secret set --vault-name smeoborlean -n password --value password
+#az keyvault secret set --vault-name smeoborlean -n username --value username
+#az keyvault secret set --vault-name smeoborlean -n password --value password
 AKS_UAMI="$(az aks show -g $RESOURCE_GROUP_NAME -n $AKS_CLUSTER_NAME --query addonProfiles.azureKeyvaultSecretsProvider.identity.objectId -o tsv)"
 IDENTITY_OBJECT_ID="$(az identity show -g $RESOURCE_GROUP_NAME --name $AKS_UAMI --query 'principalId' -o tsv)"
 KEYVAULT_SCOPE="$(az keyvault show --name smeoborlean --query id -o tsv)"
@@ -393,10 +394,21 @@ metadata:
   name: smeoborlean
 spec:
   provider: azure
+  secretObjects:
+  - secretName: secretusername
+    type: Opaque
+    data:
+     - objectName: username
+       key: username
+  - secretName: secretpassword
+    type: Opaque
+    data:
+     - objectName: password
+       key: password
   parameters:
     usePodIdentity: "false"
     useVMManagedIdentity: "true"          # Set to true for using managed identity
-    userAssignedIdentityID: $IDENTITY_OBJECT_ID
+    userAssignedIdentityID: 20b28714-0358-4194-9d4d-21dc33ab725c
     keyvaultName: smeoborlean
     cloudName: ""                         # [OPTIONAL for Azure] if not provided, the Azure environment defaults to AzurePublicCloud
     objects:  |
@@ -404,12 +416,46 @@ spec:
         - |
           objectName: username
           objectType: secret              # object types: secret, key, or cert
-          objectVersiousername:             # [OPTIONAL] object versions, default to latest if empty
+          objectVersion: ""
         - |
           objectName: password
           objectType: secret
           objectVersion: ""
     tenantId: "72f988bf-86f1-41af-91ab-2d7cd011db47"                 # The tenant ID of the key vault
+---
+kind: Pod
+apiVersion: v1
+metadata:
+  name: spclass6
+spec:
+  containers:
+    - name: busybox
+      image: registry.k8s.io/e2e-test-images/busybox:1.29-1
+      command:
+        - "/bin/sleep"
+        - "10000"
+      volumeMounts:
+      - name: secrets-store01-inline
+        mountPath: "/mnt/secrets-store"
+        readOnly: true
+      env:
+      - name: RABBITMQ_DEFAULT_USER
+        valueFrom:
+          secretKeyRef:
+            name: secretusername
+            key: username
+      - name: RABBITMQ_DEFAULT_PASS
+        valueFrom:
+          secretKeyRef: 
+            name: secretpassword
+            key: password
+  volumes:
+    - name: secrets-store01-inline
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: "smeoborlean"
 EOF
 
 kubectl apply -f ./spclass.yaml
