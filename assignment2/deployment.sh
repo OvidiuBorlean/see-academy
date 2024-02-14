@@ -265,6 +265,7 @@ az aks nodepool add --cluster-name $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME --n
 kubectl patch deploy store-front -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "dev", "effect": "NoSchedule"}]}}}}'
 kubectl patch deploy order-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "dev", "effect": "NoSchedule"}]}}}}'
 kubectl patch deploy product-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "dev", "effect": "NoSchedule"}]}}}}'
+
 kubectl rollout restart deployment store-front -n dev
 kubectl rollout restart deployment order-service -n dev
 kubectl rollout restart deployment product-service -n dev
@@ -272,9 +273,10 @@ kubectl rollout restart deployment product-service -n dev
 
 az aks nodepool add --cluster-name $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME --name prodpool --node-count 1 --labels=env=prod --node-taints env=prod:NoSchedule
 
-kubectl patch deploy store-front -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}>'
-kubectl patch deploy order-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]>'
-kubectl patch deploy product-service -n dev --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule">'
+kubectl patch deploy store-front -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}}}'
+kubectl patch deploy order-service -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}}}'
+kubectl patch deploy product-service -n prod --patch '{"spec": {"template": { "spec": {"tolerations": [{"key": "env", "operator": "Equal", "value": "prod", "effect": "NoSchedule"}]}}}}'
+
 kubectl rollout restart deployment store-front -n prod
 kubectl rollout restart deployment order-service -n prod
 kubectl rollout restart deployment product-service -n prod
@@ -284,13 +286,20 @@ kubectl rollout restart deployment product-service -n prod
 
 function azureFileShare {
 
-export STORAGE_RESOURCE_GROUP="SEE-Academy-HW2"
-export STORAGE_ACCOUNT_NAME="seeacademyfileshare"
-export FILE_SHARE_NAME="oborleanfileshare"
+export STORAGE_RESOURCE_GROUP="seeacademyhw2"
+export STORAGE_ACCOUNT_NAME="seeacademyfileshare02"
+export FILE_SHARE_NAME="oborleanfilesharenew"
 
+echo "---> Creating Resource Group"
 az group create -n $STORAGE_RESOURCE_GROUP --location eastus
-az storage account create -n STORAGE_ACCOUNT_NAME -g $STORAGE_RESOURCE_GROUP -l EastUS --sku Standard_LRS
+
+echo "---> Creating Storage Account"
+az storage account create -n $STORAGE_ACCOUNT_NAME -g $STORAGE_RESOURCE_GROUP -l EastUS --sku Standard_LRS
+
+echo "---> Getting Connection String"
 export AZURE_STORAGE_CONNECTION_STRING=$(az storage account show-connection-string -n $STORAGE_ACCOUNT_NAME -g $STORAGE_RESOURCE_GROUP -o tsv)
+
+echo "---> Creating File Share"
 az storage share create -n $FILE_SHARE_NAME --connection-string $AZURE_STORAGE_CONNECTION_STRING
 STORAGE_KEY=$(az storage account keys list --resource-group $STORAGE_RESOURCE_GROUP --account-name $STORAGE_ACCOUNT_NAME --query "[0].value" -o tsv)
 echo Storage account key: $STORAGE_KEY
@@ -509,7 +518,7 @@ case $1 in
     echo "Configure Taints and Tollerations"
     taintsAndToleration 
     ;;
-  filashare)
+  fileshare)
     echo "Configuring Azure File Share"
     azureFileShare 
     ;;
