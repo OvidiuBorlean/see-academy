@@ -2,8 +2,8 @@
 
 # Deploy AKS Cluster
 
-RESOURCE_GROUP_NAME="homework"
-AKS_CLUSTER_NAME="akswork"
+RESOURCE_GROUP_NAME="see"
+AKS_CLUSTER_NAME="aksee"
 REGION="NorthEurope"
 AAD_ADMIN="fd61ff1a-d05d-488d-a363-a09121e3444e"
 
@@ -38,7 +38,7 @@ function k8sWorkload {
    sed -i -e 's/2m/250m/g' ./application.yaml
    
    echo "---> Deploy Application on Prod"
-   kubectl apply -f /application.yaml -n prod
+   kubectl apply -f ./application.yaml -n prod
    # Dev
    echo "---> Deploy RabbitMq Application in Dev RabbitMQ"
    kubectl apply -f ./rabbitmq.yaml -n dev-rmq
@@ -122,7 +122,7 @@ kubectl apply -f ./netpol-prod-rmq.yaml
 function configHPA {
   
 cat << EOF > ./store-front-hpa.yaml
-apiVersion: autoscaling/v1
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   creationTimestamp: null
@@ -134,7 +134,13 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: store-front
-  targetCPUUtilizationPercentage: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 15
@@ -150,8 +156,8 @@ spec:
         periodSeconds: 20  
 EOF
 
-kubectl apply -f ./store-fron-hpa.yaml -n dev
-kubectl apply -f ./store-fron-hpa.yaml -n prod
+kubectl apply -f ./store-front-hpa.yaml -n dev
+kubectl apply -f ./store-front-hpa.yaml -n prod
 
 }
 
@@ -212,20 +218,21 @@ kubectl apply -f ./ingress-prod.yaml
 
 function nginxDeployment {
 
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm repo update
+az aks approuting enable -g see -n aksee
+                 
+cat << EOF > ./nginx-internall.yaml
+apiVersion: approuting.kubernetes.azure.com/v1alpha1
+kind: NginxIngressController
+metadata:
+  name: nginx-internal
+spec:
+  ingressClassName: nginx-internal
+  controllerNamePrefix: nginx-internal
+  loadBalancerAnnotations: 
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+EOF
 
-helm install ingress-dev ingress-nginx/ingress-nginx \
-    --namespace dev \
-    --set controller.replicaCount=2 \
-    --set controller.nodeSelector."kubernetes\.io/os"=linux \
-    --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-internal"=true \
-    --set controller.ingressClassResource.name=ingressdev
-
-echo "Changing Store Front Dev service from Load Balancer to ClusterIP in order to be used as a Ingress Backend service"
-kubectl patch svc store-front -n prod -p '{"spec": {"type": "ClusterIP"}}'
-
-echo "Creating Ingress Object for Dev"
+kubectl apply -f ./nginx-internall.yaml
 
 cat << EOF > ./ingress-dev.yaml
 apiVersion: networking.k8s.io/v1
@@ -234,21 +241,20 @@ metadata:
   name: storefront-dev
   namespace: dev
 spec:
-  ingressClass: ingressdev
+  ingressClassName: nginx-internal
   rules:
-  - http:
+  - host: "ovidiu.link"
+    http:
       paths:
-        - path: /
-          pathType: Prefix
-          backend:
-            service:
-              name: store-front
-              port:
-                number: 80
+      - backend:
+          service:
+            name: store-front
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
 EOF
-
 kubectl apply -f ./ingress-dev.yaml
-
 
 }
 
@@ -484,9 +490,33 @@ echo "Done"
 case $1 in
   create)
     echo "Creating AKS Cluster"
-    #createAKS
+    createAKS
     #k8sWorkload
     ;;
+  workload)
+    echo "Installing applications"
+    k8sWorkload   
+    ;;
+  netpolicy)
+    echo "Aplying Network Policy"
+    netPolicy
+    ;;
+  hpa)
+    echo "Configuring HPA"
+    configHPA
+    ;;
+  taints)
+    echo "Configure Taints and Tollerations"
+    taintsAndToleration 
+    ;;
+  filashare)
+    echo "Configuring Azure File Share"
+    azureFileShare 
+    ;;
+  serviceaccount)
+    echo "Configuring Service Account"
+    serviceaccount
+    ;; 
   delete)
     echo "Deleting AKS Cluster"
     #az aks delete -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP_NAME -y
@@ -494,11 +524,11 @@ case $1 in
     ;;
   agic)
     echo "Deploy AGIC"
-    #agicDeployment
+    agicDeployment
     ;;
   nginx)
     echo "Deploy NGINX Ingress Controller"
-    #nginxDeployment
+    nginxDeployment
     ;;
   secret)
     echo "Deploy Secret Store"
