@@ -380,7 +380,8 @@ echo "Enable KeyVault AddOn"
 #az keyvault secret set --vault-name smeoborlean -n username --value username
 #az keyvault secret set --vault-name smeoborlean -n password --value password
 AKS_UAMI="$(az aks show -g $RESOURCE_GROUP_NAME -n $AKS_CLUSTER_NAME --query addonProfiles.azureKeyvaultSecretsProvider.identity.objectId -o tsv)"
-IDENTITY_OBJECT_ID="$(az identity show -g $RESOURCE_GROUP_NAME --name $AKS_UAMI --query 'principalId' -o tsv)"
+NODE_RESOURCE_GROUP="$(az aks show -n aks -g aks -o tsv --query nodeResourceGroup)"
+IDENTITY_OBJECT_ID="$(az identity show -g $NODE_RESOURCE_GROUP --name $AKS_UAMI --query 'principalId' -o tsv)"
 KEYVAULT_SCOPE="$(az keyvault show --name smeoborlean --query id -o tsv)"
 
 
@@ -463,6 +464,22 @@ kubectl apply -f ./spclass.yaml
 }
 
 
+function serviceaccount {
+echo "---> Creating Service Account"
+
+kubectl create sa dev-team-sa
+
+kubectl create clusterrole dev --verb=* --resource=*
+kubectl create clusterrole prod --verb=get,list,watch --resource=pod,deployments
+
+kubectl create clusterrolebinding dev --clusterrole=dev --serviceaccount=dev:dev-team-sa
+kubectl create clusterrolebinding dev --clusterrole=dev --serviceaccount=dev-rmq:dev-team-sa
+
+kubectl create clusterrolebinding prod --clusterrole=prod --serviceaccount=prod:dev-team-sa
+kubectl create clusterrolebinding prod --clusterrole=prod --serviceaccount=prod-rmq:dev-team-sa
+
+echo "Done"
+}
 
 case $1 in
   create)
